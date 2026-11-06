@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CertStore</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="login hidden">
+    <form id="login-form" class="card login-card">
+      <div class="brand"><span class="logo">🔐</span> CertStore</div>
+      <p class="muted">Enter the admin token from your <code>.env</code> file.</p>
+      <input id="login-token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password" required />
+      <button type="submit" class="primary">Sign in</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand"><span class="logo">🔐</span> CertStore</div>
+      <nav id="tabs">
+        <button data-tab="certs" class="active">Certificates</button>
+        <button data-tab="creds">Cloudflare tokens</button>
+        <button data-tab="keys">API keys</button>
+        <button data-tab="settings">Settings</button>
+        <button data-tab="audit">Audit log</button>
+      </nav>
+      <button id="logout" class="ghost">Sign out</button>
+    </header>
+
+    <main>
+      <!-- Certificates -->
+      <section data-panel="certs">
+        <div class="panel-head">
+          <h2>Certificates</h2>
+          <button class="primary" data-open="dlg-cert">+ New certificate</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Domain(s)</th><th>Status</th><th>Expires</th><th>Cloudflare token</th><th>CA / account</th><th></th></tr></thead>
+            <tbody id="certs-body"></tbody>
+          </table>
+        </div>
+        <p class="hint">Certificates renew automatically when they are within the renewal window (see Settings). Download them from other servers using an API key.</p>
+      </section>
+
+      <!-- Credentials -->
+      <section data-panel="creds" class="hidden">
+        <div class="panel-head">
+          <h2>Cloudflare API tokens</h2>
+          <button class="primary" data-open="dlg-cred">+ Add token</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Token</th><th>Zones</th><th>Used by</th><th>Verified</th><th></th></tr></thead>
+            <tbody id="creds-body"></tbody>
+          </table>
+        </div>
+        <p class="hint">Tokens need <b>Zone → DNS → Edit</b> and <b>Zone → Zone → Read</b> permissions on the zones you issue for. They are encrypted at rest and never shown again.</p>
+      </section>
+
+      <!-- API keys -->
+      <section data-panel="keys" class="hidden">
+        <div class="panel-head">
+          <h2>API keys</h2>
+          <button class="primary" data-open="dlg-key">+ New API key</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Key</th><th>Certificates</th><th>Allowed IPs</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+            <tbody id="keys-body"></tbody>
+          </table>
+        </div>
+        <details class="card usage">
+          <summary>How to download certificates from another server</summary>
+          <pre id="usage"></pre>
+        </details>
+      </section>
+
+      <!-- Settings -->
+      <section data-panel="settings" class="hidden">
+        <h2>Settings</h2>
+        <form id="settings-form" class="card form-grid">
+          <label>Renew when fewer than N days remain
+            <input name="renewBeforeDays" type="number" min="1" max="60" required />
+          </label>
+          <div><button type="submit" class="primary">Save</button> <span id="settings-msg" class="muted"></span></div>
+        </form>
+      </section>
+
+      <!-- Audit -->
+      <section data-panel="audit" class="hidden">
+        <div class="panel-head"><h2>Audit log</h2><button class="ghost" id="audit-refresh">Refresh</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th><th>Detail</th></tr></thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Dialogs -->
+  <dialog id="dlg-cert">
+    <form method="dialog" id="cert-form" class="form-grid">
+      <h3>New certificate</h3>
+      <label>Domains <small>(one per line or comma-separated; first is the primary name; wildcards like *.example.com allowed)</small>
+        <textarea name="domains" rows="3" required placeholder="api.example.com&#10;www.example.com"></textarea>
+      </label>
+      <label>Cloudflare token
+        <select name="credentialId" required></select>
+      </label>
+      <label>ACME account email <small>(optional — defaults to admin@&lt;domain&gt;)</small>
+        <input name="email" type="email" placeholder="admin@example.com" />
+      </label>
+      <div class="row">
+        <label>Certificate authority
+          <select name="acmeEnv">
+            <option value="production">Let's Encrypt (production)</option>
+            <option value="staging">Let's Encrypt (staging / testing)</option>
+          </select>
+        </label>
+        <label>Key type
+          <select name="keyType">
+            <option value="ecdsa">ECDSA P-256</option>
+            <option value="rsa">RSA 2048</option>
+          </select>
+        </label>
+      </div>
+      <p class="error" data-error></p>
+      <div class="actions"><button value="cancel" formnovalidate class="ghost">Cancel</button><button type="submit" class="primary">Create &amp; issue</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-edit-cert">
+    <form method="dialog" id="edit-cert-form" class="form-grid">
+      <h3>Edit <span data-title></span></h3>
+      <label>Cloudflare token <select name="credentialId" required></select></label>
+      <label>ACME account email <small>(blank = admin@&lt;domain&gt;)</small>
+        <input name="email" type="email" />
+      </label>
+      <div class="row">
+        <label>Certificate authority
+          <select name="acmeEnv">
+            <option value="production">Let's Encrypt (production)</option>
+            <option value="staging">Let's Encrypt (staging / testing)</option>
+          </select>
+        </label>
+        <label>Key type
+          <select name="keyType"><option value="ecdsa">ECDSA P-256</option><option value="rsa">RSA 2048</option></select>
+        </label>
+      </div>
+      <p class="muted">Changes apply on the next issuance. Use “Renew now” to re-issue immediately.</p>
+      <p class="error" data-error></p>
+      <div class="actions"><button value="cancel" formnovalidate class="ghost">Cancel</button><button type="submit" class="primary">Save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-cred">
+    <form method="dialog" id="cred-form" class="form-grid">
+      <h3 data-title>Add Cloudflare token</h3>
+      <input type="hidden" name="id" />
+      <label>Name <input name="name" required maxlength="80" placeholder="e.g. production account" /></label>
+      <label>API token <small data-token-hint></small>
+        <input name="token" type="password" autocomplete="off" placeholder="Cloudflare API token" />
+      </label>
+      <p class="error" data-error></p>
+      <div class="actions"><button value="cancel" formnovalidate class="ghost">Cancel</button><button type="submit" class="primary">Verify &amp; save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-key">
+    <form method="dialog" id="key-form" class="form-grid">
+      <h3>New API key</h3>
+      <label>Name <input name="name" required maxlength="80" placeholder="e.g. web-01 nginx" /></label>
+      <fieldset>
+        <legend>Certificates this key can download</legend>
+        <label class="check"><input type="checkbox" name="all" value="*" /> All certificates (current and future)</label>
+        <div id="key-domains"></div>
+      </fieldset>
+      <label>Allowed IPs / CIDRs <small>(optional, comma-separated)</small>
+        <input name="allowedIps" placeholder="203.0.113.10, 10.0.0.0/8" />
+      </label>
+      <label>Expires in days <small>(optional)</small>
+        <input name="expiresInDays" type="number" min="1" />
+      </label>
+      <p class="error" data-error></p>
+      <div class="actions"><button value="cancel" formnovalidate class="ghost">Cancel</button><button type="submit" class="primary">Create key</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-key-created">
+    <div class="form-grid">
+      <h3>API key created</h3>
+      <p>Copy it now — it will <b>not</b> be shown again.</p>
+      <div class="secret"><code id="new-key"></code><button class="ghost" id="copy-key">Copy</button></div>
+      <div class="actions"><button class="primary" data-close>Done</button></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

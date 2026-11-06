@@ -1,0 +1,22 @@
+services:
+  certstore:
+    image: ghcr.io/mroplus/cert-repository:latest
+    build: .
+    container_name: certstore
+    restart: unless-stopped
+    init: true
+    # Generate with:  docker run --rm ghcr.io/mroplus/cert-repository node scripts/setup.mjs --print > .env
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8443
+      DATA_DIR: /data
+    ports:
+      # Bound to localhost by default: put a TLS reverse proxy in front, or set TLS_DOMAIN in .env
+      # and change this to "8443:8443" to let CertStore serve HTTPS itself.
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - certstore-data:/data
+
+volumes:
+  certstore-data:
